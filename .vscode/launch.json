@@ -1,0 +1,33 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "serverless-offline",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["--inspect", "--debug-port=9229"],
+      "program": "${workspaceFolder}/node_modules/serverless/bin/serverless.js",
+      "args": ["offline", "start", "-s", "local"],
+      "runtimeExecutable": "node",
+      "nodeVersionHint": 10,
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "example",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["--inspect", "--debug-port=9229"],
+      "program": "${workspaceFolder}/example/main.js",
+      "env": {
+        "IS_OFFLINE": "1"
+      },
+      "args": [""],
+      "cwd": "${workspaceFolder}/example",
+      "runtimeExecutable": "node",
+      "nodeVersionHint": 10,
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

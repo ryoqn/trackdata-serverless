@@ -1,0 +1,192 @@
+service: trackdata-serverless
+
+frameworkVersion: '3'
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs16.x
+  architecture: arm64
+  region: ap-northeast-1
+  stage: dev
+  profile: ${self:custom.profiles.${sls:stage}}
+  httpApi:
+    disableDefaultEndpoint: true
+    authorizers:
+      customAuthorizer:
+        type: request
+        functionName: authorizer
+        name: customAuthorizer
+        enableSimpleResponses: true
+        resultTtlInSeconds: 300
+        payloadVersion: '2.0'
+        identitySource:
+          - $request.header.X-Webhook-Token
+        identityValidationExpression: someRegex
+    cors:
+      allowedOrigins:
+        - 'http://localhost:3000'
+      allowedHeaders:
+        - X-Webhook-Token
+      allowedMethods:
+        - GET
+      maxAge: 6000 # In seconds
+
+  iam:
+    role:
+      managedPolicies:
+        - 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess'
+
+custom:
+  profiles:
+    dev: ${env:PROFILE} # set aws profile at dev stage.
+    prod: ${env:PROFILE} # set aws profile at prod stage.
+    local: ${env:PROFILE} # set aws profile at local stage.
+  jest:
+    testTimeout: 30000
+  serverless-offline:
+    noAuth: true
+  serverless-layers:
+    layersDeploymentBucket: ${env:LAYERS_BUCKETNAME}-${aws:accountId}
+  prune:
+    automatic: true
+    number: 3
+  dynamodb:
+    stages:
+      - local
+    start:
+      port: 8000
+      inMemory: true
+      migrate: true
+      seed: true
+      convertEmptyValues: true
+
+package:
+  patterns:
+    - '!.prettierignore'
+    - '!.prettierrc'
+    - '!.jest.config.js'
+    - '!.eslintrc.yml'
+    - '!README.md'
+    - '!package.json'
+    - '!package-lock.json'
+    - '!public/**'
+    - '!app.js'
+    - '!.DS_Store'
+    - '!.git/**'
+    - '!.gitignore'
+    - '!.dynamodb/**'
+    - '!.vscode/**'
+
+functions:
+  webhook:
+    handler: src/handler.webhook
+    name: ${self:provider.stage}-${self:service}-webhook
+    environment:
+      REGION: ${self:provider.region}
+      GPS_TABLENAME: ${env:GPS_TABLENAME}
+      SETTING_TABLENAME: ${env:SETTING_TABLENAME}
+    events:
+      - httpApi:
+          path: /webhook
+          method: POST
+          authorizer:
+            name: customAuthorizer
+
+  delete:
+    handler: src/handler.delete
+    name: ${self:provider.stage}-${self:service}-delete
+    environment:
+      REGION: ${self:provider.region}
+      GPS_TABLENAME: ${env:GPS_TABLENAME}
+    events:
+      - httpApi:
+          path: /delete
+          method: DELETE
+          authorizer:
+            name: customAuthorizer
+
+  sample:
+    handler: src/sample.sample
+    name: ${self:provider.stage}-${self:service}-sample
+    environment:
+      REGION: ${self:provider.region}
+      GPS_TABLENAME: ${env:GPS_TABLENAME}
+      SETTING_TABLENAME: ${env:SETTING_TABLENAME}
+    events:
+      - httpApi:
+          path: /sample
+          method: POST
+          authorizer:
+            name: customAuthorizer
+
+  track:
+    handler: src/handler.track
+    name: ${self:provider.stage}-${self:service}-track
+    environment:
+      REGION: ${self:provider.region}
+      GPS_TABLENAME: ${env:GPS_TABLENAME}
+    events:
+      - httpApi:
+          path: /track
+          method: GET
+          authorizer:
+            name: customAuthorizer
+  authorizer:
+    name: ${self:provider.stage}-${self:service}-authorizer
+    handler: src/handler.authorizer
+
+resources:
+  Resources:
+    LambdaLayerBucket:
+      Type: 'AWS::S3::Bucket'
+      Properties:
+        BucketName: ${env:LAYERS_BUCKETNAME}-${aws:accountId}
+    GPSTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        # set table name
+        TableName: ${env:GPS_TABLENAME}
+        # set Partition Key / Sort Key
+        AttributeDefinitions:
+          - AttributeName: DeviceId
+            AttributeType: S
+          - AttributeName: SamplingTime
+            AttributeType: N
+        # set the type of key
+        KeySchema:
+          - AttributeName: DeviceId
+            KeyType: HASH
+          - AttributeName: SamplingTime
+            KeyType: RANGE
+        # set CapacityUnits
+        # ProvisionedThroughput:
+        #   ReadCapacityUnits: 1
+        #   WriteCapacityUnits: 1
+        TimeToLiveSpecification:
+          AttributeName: Expiration
+          Enabled: true
+        BillingMode: PAY_PER_REQUEST
+    SettingTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        # set table name
+        TableName: ${env:SETTING_TABLENAME}
+        # set Partition Key / Sort Key
+        AttributeDefinitions:
+          - AttributeName: UplinkId
+            AttributeType: S
+        # set the type of key
+        KeySchema:
+          - AttributeName: UplinkId
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: Expiration
+          Enabled: true
+        BillingMode: PAY_PER_REQUEST
+
+plugins:
+  - serverless-prune-plugin
+  - serverless-layers
+  - serverless-offline
+  - serverless-dynamodb-local
